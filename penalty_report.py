@@ -151,7 +151,7 @@ def fetch_csrc_penalties_pages(max_pages=5):
                 
                 title = link_tag.get('title', '') or link_tag.get_text(strip=True)
                 link = link_tag.get('href', '')
-                date_str = date_tag.get_text(strip=True) if date_str else ''
+                date_str = date_tag.get_text(strip=True) if date_tag else ''
                 
                 if link and not link.startswith('http'):
                     link = 'http://www.csrc.gov.cn' + link
@@ -363,158 +363,158 @@ def extract_structured_info(all_cases):
     "source_link": "http://..."
   }}
 ]
-        以下是待处理的案例：
+```
+以下是待处理的案例：
 {batch_text}
 """
 
-try:
-response = client.chat.completions.create(
-model="deepseek-chat",
-messages=[{"role": "user", "content": prompt}],
-temperature=0.1,
-max_tokens=4000,
-)
-result_text = response.choices[0].message.content.strip()
+        try:
+            response = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=4000,
+            )
+            result_text = response.choices[0].message.content.strip()
 
-提取 JSON 部分
-json_match = re.search(r'
-.
-∗
-.∗', result_text, re.DOTALL)
-if json_match:
-try:
-batch_results = json.loads(json_match.group())
-all_results.extend(batch_results)
-print(f" 成功提取 {len(batch_results)} 条结构化数据")
-except json.JSONDecodeError as e:
-print(f" JSON 解析失败: {e}")
-print(f" 原始返回: {result_text[:200]}")
-else:
-print(f" 未找到 JSON 数组")
-except Exception as e:
-print(f" DeepSeek 调用失败: {e}")
+            # 提取 JSON 部分
+            json_match = re.search(r'\[[\s\S]*\]', result_text)
+            if json_match:
+                try:
+                    batch_results = json.loads(json_match.group())
+                    all_results.extend(batch_results)
+                    print(f"  成功提取 {len(batch_results)} 条结构化数据")
+                except json.JSONDecodeError as e:
+                    print(f"  JSON 解析失败: {e}")
+                    print(f"  原始返回: {result_text[:200]}")
+            else:
+                print(f"  未找到 JSON 数组")
+        except Exception as e:
+            print(f"  DeepSeek 调用失败: {e}")
 
-time.sleep(2) # API 调用间隔
+        time.sleep(2)  # API 调用间隔
 
-return all_results
+    return all_results
 
-=============================================
-六、生成表格并推送飞书
-=============================================
+# =============================================
+# 六、生成表格并推送飞书
+# =============================================
+
 def generate_markdown_table(results):
-"""将结构化结果生成 Markdown 表格"""
-if not results:
-return "暂无处罚案例数据。"
+    """将结构化结果生成 Markdown 表格"""
+    if not results:
+        return "暂无处罚案例数据。"
 
-lines = []
-lines.append("# 私募基金处罚案例汇总表")
-lines.append(f"更新时间：{datetime.now(TZ).strftime('%Y-%m-%d %H:%M')}")
-lines.append(f"共计 {len(results)} 条处罚案例")
-lines.append("")
-lines.append("| 序号 | 监管主体 | 被罚机构 | 处罚日期 | 违规事实 | 处罚依据 | 处罚结果 | 原文链接 |")
-lines.append("|:---:|:---|:---|:---|:---|:---|:---|:---|")
+    lines = []
+    lines.append("# 私募基金处罚案例汇总表")
+    lines.append(f"更新时间：{datetime.now(TZ).strftime('%Y-%m-%d %H:%M')}")
+    lines.append(f"共计 {len(results)} 条处罚案例")
+    lines.append("")
+    lines.append("| 序号 | 监管主体 | 被罚机构 | 处罚日期 | 违规事实 | 处罚依据 | 处罚结果 | 原文链接 |")
+    lines.append("|:---:|:---|:---|:---|:---|:---|:---|:---|")
 
-for item in results:
-idx = item.get('penalty_id', '')
-regulator = item.get('regulator', '')
-entity = item.get('entity', '')
-date = item.get('penalty_date', '')
-violation = item.get('violation', '').replace('|', '\|').replace('\n', ' ')
-legal = item.get('legal_basis', '').replace('|', '\|').replace('\n', ' ')
-result = item.get('penalty_result', '').replace('|', '\|').replace('\n', ' ')
-link = item.get('source_link', '')
+    for item in results:
+        idx = item.get('penalty_id', '')
+        regulator = item.get('regulator', '')
+        entity = item.get('entity', '')
+        date = item.get('penalty_date', '')
+        violation = item.get('violation', '').replace('|', '\\|').replace('\n', ' ')
+        legal = item.get('legal_basis', '').replace('|', '\\|').replace('\n', ' ')
+        result = item.get('penalty_result', '').replace('|', '\\|').replace('\n', ' ')
+        link = item.get('source_link', '')
 
-link_md = f"查看原文" if link else ""
+        link_md = f"查看原文" if link else ""
 
-lines.append(f"| {idx} | {regulator} | {entity} | {date} | {violation} | {legal} | {result} | {link_md} |")
+        lines.append(f"| {idx} | {regulator} | {entity} | {date} | {violation} | {legal} | {result} | {link_md} |")
 
-return '\n'.join(lines)
+    return '\n'.join(lines)
 
 def send_to_feishu(content):
-"""分段推送到飞书"""
-max_len = 15000
-segments = [content[i:i+max_len] for i in range(0, len(content), max_len)]
+    """分段推送到飞书"""
+    max_len = 15000
+    segments = [content[i:i+max_len] for i in range(0, len(content), max_len)]
 
-total_segments = len(segments)
+    total_segments = len(segments)
 
-for i, seg in enumerate(segments):
-header_text = f"📋 私募基金处罚案例汇总"
-if total_segments > 1:
-header_text += f" ({i+1}/{total_segments})"
+    for i, seg in enumerate(segments):
+        header_text = f"📋 私募基金处罚案例汇总"
+        if total_segments > 1:
+            header_text += f" ({i+1}/{total_segments})"
 
-payload = {
-"msg_type": "interactive",
-"card": {
-"config": {"wide_screen_mode": True},
-"header": {
-"title": {
-"tag": "plain_text",
-"content": header_text
-},
-"template": "red"
-},
-"elements": [
-{
-"tag": "markdown",
-"content": seg
-}
-]
-}
-}
-try:
-resp = requests.post(FEISHU_WEBHOOK, json=payload)
-if resp.status_code == 200:
-print(f"第{i+1}/{total_segments}段发送成功")
-else:
-print(f"发送失败: {resp.text}")
-except Exception as e:
-print(f"请求异常: {e}")
-time.sleep(1)
+        payload = {
+            "msg_type": "interactive",
+            "card": {
+                "config": {"wide_screen_mode": True},
+                "header": {
+                    "title": {
+                        "tag": "plain_text",
+                        "content": header_text
+                    },
+                    "template": "red"
+                },
+                "elements": [
+                    {
+                        "tag": "markdown",
+                        "content": seg
+                    }
+                ]
+            }
+        }
+        try:
+            resp = requests.post(FEISHU_WEBHOOK, json=payload)
+            if resp.status_code == 200:
+                print(f"第{i+1}/{total_segments}段发送成功")
+            else:
+                print(f"发送失败: {resp.text}")
+        except Exception as e:
+            print(f"请求异常: {e}")
+        time.sleep(1)
 
-=============================================
-主流程
-=============================================
+# =============================================
+# 主流程
+# =============================================
+
 def main():
-print("=" * 60)
-print("私募基金处罚案例全量梳理 - 开始执行")
-print(f"执行时间: {datetime.now(TZ).strftime('%Y-%m-%d %H:%M:%S')}")
-print("=" * 60)
+    print("=" * 60)
+    print("私募基金处罚案例全量梳理 - 开始执行")
+    print(f"执行时间: {datetime.now(TZ).strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 60)
 
-1. 抓取所有案例列表
-amac_cases = fetch_amac_discipline_pages(max_pages=10) # 基金业协会，翻10页
-csrc_cases = fetch_csrc_penalties_pages(max_pages=10) # 证监会，翻10页
-local_cases = fetch_local_csrc_penalties(max_pages=3) # 各地证监局，各翻3页
+    # 1. 抓取所有案例列表
+    amac_cases = fetch_amac_discipline_pages(max_pages=10)  # 基金业协会，翻10页
+    csrc_cases = fetch_csrc_penalties_pages(max_pages=10)  # 证监会，翻10页
+    local_cases = fetch_local_csrc_penalties(max_pages=3)  # 各地证监局，各翻3页
 
-all_cases = amac_cases + csrc_cases + local_cases
+    all_cases = amac_cases + csrc_cases + local_cases
 
-按标题去重
-seen_titles = set()
-unique_cases = []
-for case in all_cases:
-if case['title'] not in seen_titles:
-seen_titles.add(case['title'])
-unique_cases.append(case)
+    # 按标题去重
+    seen_titles = set()
+    unique_cases = []
+    for case in all_cases:
+        if case['title'] not in seen_titles:
+            seen_titles.add(case['title'])
+            unique_cases.append(case)
 
-print(f"\n{'=' * 50}")
-print(f"去重后共计 {len(unique_cases)} 条案例")
-print(f"{'=' * 50}")
+    print(f"\n{'=' * 50}")
+    print(f"去重后共计 {len(unique_cases)} 条案例")
+    print(f"{'=' * 50}")
 
-if not unique_cases:
-send_to_feishu("未抓取到任何私募基金处罚案例。")
-return
+    if not unique_cases:
+        send_to_feishu("未抓取到任何私募基金处罚案例。")
+        return
 
-2. 交给 AI 提取结构化信息
-structured_data = extract_structured_info(unique_cases)
+    # 2. 交给 AI 提取结构化信息
+    structured_data = extract_structured_info(unique_cases)
 
-3. 生成 Markdown 表格
-table_md = generate_markdown_table(structured_data)
+    # 3. 生成 Markdown 表格
+    table_md = generate_markdown_table(structured_data)
 
-4. 发送到飞书
-send_to_feishu(table_md)
+    # 4. 发送到飞书
+    send_to_feishu(table_md)
 
-print("\n" + "=" * 50)
-print("执行完毕！")
-print("=" * 50)
+    print("\n" + "=" * 50)
+    print("执行完毕！")
+    print("=" * 50)
 
-if name == "main":
-main()
+if __name__ == "__main__":
+    main()
