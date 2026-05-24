@@ -151,7 +151,7 @@ def fetch_csrc_penalties_pages(max_pages=5):
                 
                 title = link_tag.get('title', '') or link_tag.get_text(strip=True)
                 link = link_tag.get('href', '')
-                date_str = date_tag.get_text(strip=True) if date_tag else ''
+                date_str = date_tag.get_text(strip=True) if date_str else ''
                 
                 if link and not link.startswith('http'):
                     link = 'http://www.csrc.gov.cn' + link
